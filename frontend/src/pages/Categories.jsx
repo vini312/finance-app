@@ -1,25 +1,33 @@
 /**
- * Categories.jsx
- * Manage transaction categories: add, view, delete.
+ * Categories.jsx — MUI category management.
  */
 
 import React, { useState } from "react";
+import {
+  Box, Card, CardContent, Typography, TextField, Button,
+  Grid, IconButton, Alert, Stack, Tooltip, Divider,
+} from "@mui/material";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import AddIcon from "@mui/icons-material/Add";
 import { api } from "../api/api";
-import { Card, CardTitle, inputStyle, primaryBtnStyle } from "../components/UI";
 
 export default function Categories({ categories, onRefresh }) {
   const [newName,  setNewName]  = useState("");
   const [newIcon,  setNewIcon]  = useState("📁");
   const [newColor, setNewColor] = useState("#7c6af7");
   const [error,    setError]    = useState(null);
+  const [success,  setSuccess]  = useState(false);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setError(null);
+    setSuccess(false);
     try {
       await api.createCategory({ name: newName.trim(), icon: newIcon, color: newColor });
       setNewName("");
       setNewIcon("📁");
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
       onRefresh();
     } catch (e) {
       setError(e.message);
@@ -33,51 +41,95 @@ export default function Categories({ categories, onRefresh }) {
   };
 
   return (
-    <div>
-      {/* Create form */}
-      <Card style={{ marginBottom: 24 }}>
-        <CardTitle>Add Category</CardTitle>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <input value={newIcon}  onChange={(e) => setNewIcon(e.target.value)}  placeholder="Emoji" title="Paste any emoji" style={{ ...inputStyle, width: 64, textAlign: "center", fontSize: 20 }} />
-          <input value={newName}  onChange={(e) => setNewName(e.target.value)}  placeholder="Category name" style={{ ...inputStyle, flex: 1, minWidth: 160 }} onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
-          <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} title="Pick a color" style={{ ...inputStyle, width: 48, padding: 4, cursor: "pointer" }} />
-          <button onClick={handleCreate} style={primaryBtnStyle}>Add</button>
-        </div>
-        {error && <div style={{ color: "#ff8080", marginTop: 10, fontSize: 13 }}>❌ {error}</div>}
+    <Box>
+      {/* Add form */}
+      <Card elevation={0} sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" mb={2}>Add Category</Typography>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
+            <TextField
+              value={newIcon}
+              onChange={(e) => setNewIcon(e.target.value)}
+              label="Emoji"
+              size="small"
+              sx={{ width: 90, "& input": { fontSize: 22, textAlign: "center" } }}
+              InputProps={{ sx: { bgcolor: "background.default" } }}
+            />
+            <TextField
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              label="Category name"
+              size="small"
+              sx={{ flexGrow: 1 }}
+              InputProps={{ sx: { bgcolor: "background.default" } }}
+            />
+            <Tooltip title="Pick a color">
+              <Box
+                component="input"
+                type="color"
+                value={newColor}
+                onChange={(e) => setNewColor(e.target.value)}
+                sx={{
+                  width: 48, height: 40, border: "1px solid", borderColor: "divider",
+                  borderRadius: 1, cursor: "pointer", p: "2px", bgcolor: "background.default",
+                }}
+              />
+            </Tooltip>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleCreate}
+              disabled={!newName.trim()}
+            >
+              Add
+            </Button>
+          </Stack>
+          {error   && <Alert severity="error"   sx={{ mt: 2 }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ mt: 2 }}>Category added!</Alert>}
+        </CardContent>
       </Card>
 
       {/* Category grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+      <Typography variant="subtitle2" color="text.disabled" mb={1.5}>
+        {categories.length} categories
+      </Typography>
+      <Grid container spacing={2}>
         {categories.map((cat) => (
-          <div
-            key={cat.id}
-            style={{
-              background: "#1a1f2e",
-              border: `1px solid ${cat.color}44`,
-              borderRadius: 12,
-              padding: "16px 20px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 26 }}>{cat.icon}</span>
-              <div>
-                <div style={{ color: "#c8d0e7", fontWeight: 600, fontSize: 14 }}>{cat.name}</div>
-                <div style={{ width: 40, height: 4, borderRadius: 2, background: cat.color, marginTop: 5 }} />
-              </div>
-            </div>
-            <button
-              onClick={() => handleDelete(cat.id)}
-              title="Delete category"
-              style={{ background: "none", border: "none", color: "#5a6480", cursor: "pointer", fontSize: 16, padding: 4 }}
+          <Grid item xs={12} sm={6} md={4} lg={3} key={cat.id}>
+            <Card
+              elevation={0}
+              sx={{
+                border: "1px solid",
+                borderColor: cat.color + "44",
+                transition: "border-color 0.2s",
+                "&:hover": { borderColor: cat.color },
+              }}
             >
-              🗑
-            </button>
-          </div>
+              <CardContent sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", py: "12px !important" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <Typography fontSize={28}>{cat.icon}</Typography>
+                  <Box>
+                    <Typography variant="body2" fontWeight={600} color="text.primary">
+                      {cat.name}
+                    </Typography>
+                    <Box
+                      sx={{ width: 36, height: 3, borderRadius: 2, bgcolor: cat.color, mt: 0.5 }}
+                    />
+                  </Box>
+                </Box>
+                <IconButton
+                  size="small"
+                  onClick={() => handleDelete(cat.id)}
+                  sx={{ color: "text.disabled", "&:hover": { color: "error.main" } }}
+                >
+                  <DeleteOutlineIcon fontSize="small" />
+                </IconButton>
+              </CardContent>
+            </Card>
+          </Grid>
         ))}
-      </div>
-    </div>
+      </Grid>
+    </Box>
   );
 }

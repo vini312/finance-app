@@ -1,45 +1,43 @@
 /**
- * Transactions.jsx
- * Filterable, sortable, paginated transaction table with inline category editing.
+ * Transactions.jsx — MUI DataGrid-style transaction table.
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import {
+  Box, Card, CardContent, TextField, Select, MenuItem, FormControl,
+  InputLabel, Button, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, TableSortLabel, TablePagination, Chip,
+  Typography, Stack, IconButton, Tooltip,
+} from "@mui/material";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import FilterListOffIcon from "@mui/icons-material/FilterListOff";
 import { api } from "../api/api";
 import { formatCurrency, formatDate } from "../utils/formatters";
-import { Badge, inputStyle, ghostBtnStyle } from "../components/UI";
-
-const PER_PAGE = 20;
-
-const TH = ({ label, col, sortBy, sortDir, onSort }) => (
-  <th
-    onClick={() => onSort(col)}
-    style={{
-      padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#5a6480",
-      textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer",
-      userSelect: "none", borderBottom: "1px solid #1e2440", whiteSpace: "nowrap",
-    }}
-  >
-    {label}{sortBy === col ? (sortDir === "desc" ? " ↓" : " ↑") : " ·"}
-  </th>
-);
+import { CategoryChip } from "../components/UI";
 
 export default function Transactions({ categories, refresh: externalRefresh }) {
   const [txns,      setTxns]      = useState([]);
   const [search,    setSearch]    = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [type,      setType]      = useState("all");
-  const [sortBy,    setSortBy]    = useState("date");
-  const [sortDir,   setSortDir]   = useState("desc");
+  const [orderBy,   setOrderBy]   = useState("date");
+  const [order,     setOrder]     = useState("desc");
   const [editId,    setEditId]    = useState(null);
-  const [page,      setPage]      = useState(1);
+  const [page,      setPage]      = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   const load = useCallback(async () => {
-    const data = await api.getTransactions({ search, categoryId: catFilter, type, sortBy, sortDir }).catch(() => []);
+    const data = await api.getTransactions({ search, categoryId: catFilter, type, sortBy: orderBy, sortDir: order }).catch(() => []);
     setTxns(data);
-    setPage(1);
-  }, [search, catFilter, type, sortBy, sortDir]);
+    setPage(0);
+  }, [search, catFilter, type, orderBy, order]);
 
   useEffect(() => { load(); }, [load, externalRefresh]);
+
+  const handleSort = (col) => {
+    if (orderBy === col) setOrder((o) => (o === "asc" ? "desc" : "asc"));
+    else { setOrderBy(col); setOrder("desc"); }
+  };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this transaction?")) return;
@@ -53,104 +51,166 @@ export default function Transactions({ categories, refresh: externalRefresh }) {
     load();
   };
 
-  const handleSort = (col) => {
-    if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortBy(col); setSortDir("desc"); }
-  };
+  const clearFilters = () => { setSearch(""); setCatFilter("all"); setType("all"); };
 
-  const paginated  = txns.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-  const totalPages = Math.ceil(txns.length / PER_PAGE);
+  const paginated = txns.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  const COLUMNS = [
+    { id: "date",        label: "Date",        sortable: true },
+    { id: "description", label: "Description", sortable: true },
+    { id: "amount",      label: "Amount",      sortable: true },
+    { id: "category",    label: "Category",    sortable: false },
+    { id: "balance",     label: "Balance",     sortable: false },
+    { id: "actions",     label: "",            sortable: false },
+  ];
 
   return (
-    <div>
+    <Box>
       {/* Filters */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search transactions…" style={{ ...inputStyle, flex: 1, minWidth: 200 }} />
-        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={inputStyle}>
-          <option value="all">All Categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-        </select>
-        <select value={type} onChange={(e) => setType(e.target.value)} style={inputStyle}>
-          <option value="all">All Types</option>
-          <option value="income">Income only</option>
-          <option value="expense">Expenses only</option>
-        </select>
-        <button onClick={() => { setSearch(""); setCatFilter("all"); setType("all"); }} style={ghostBtnStyle}>
-          Clear
-        </button>
-      </div>
+      <Card elevation={0} sx={{ mb: 2 }}>
+        <CardContent>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
+            <TextField
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search transactions…"
+              size="small"
+              sx={{ flexGrow: 1 }}
+              InputProps={{ sx: { bgcolor: "background.default" } }}
+            />
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Category</InputLabel>
+              <Select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} label="Category" sx={{ bgcolor: "background.default" }}>
+                <MenuItem value="all">All Categories</MenuItem>
+                {categories.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>{c.icon} {c.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Type</InputLabel>
+              <Select value={type} onChange={(e) => setType(e.target.value)} label="Type" sx={{ bgcolor: "background.default" }}>
+                <MenuItem value="all">All Types</MenuItem>
+                <MenuItem value="income">Income</MenuItem>
+                <MenuItem value="expense">Expenses</MenuItem>
+              </Select>
+            </FormControl>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<FilterListOffIcon />}
+              onClick={clearFilters}
+              sx={{ whiteSpace: "nowrap", borderColor: "divider", color: "text.secondary" }}
+            >
+              Clear
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
 
-      <div style={{ fontSize: 13, color: "#5a6480", marginBottom: 12 }}>{txns.length} transactions</div>
+      <Typography variant="caption" color="text.disabled" sx={{ ml: 0.5, mb: 1, display: "block" }}>
+        {txns.length} transactions
+      </Typography>
 
-      <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #2a3048" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#111520" }}>
-              <TH label="Date"        col="date"        sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-              <TH label="Description" col="description" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-              <TH label="Amount"      col="amount"      sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-              <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#5a6480", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #1e2440" }}>Category</th>
-              <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#5a6480", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #1e2440" }}>Balance</th>
-              <th style={{ padding: "12px 16px", borderBottom: "1px solid #1e2440" }} />
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: "center", padding: 40, color: "#5a6480" }}>No transactions found</td></tr>
-            )}
-            {paginated.map((t, i) => {
-              const cat      = categories.find((c) => c.id === t.categoryId) || { name: "Other", color: "#888", icon: "📦" };
-              const isIncome = t.amount > 0;
-              return (
-                <tr key={t.id} style={{ background: i % 2 === 0 ? "#131829" : "#111520", borderBottom: "1px solid #1e2440" }}>
-                  <td style={TD}>{formatDate(t.date)}</td>
-                  <td style={{ ...TD, maxWidth: 300 }}>
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#c8d0e7" }}>{t.description}</div>
-                    {t.source && <div style={{ fontSize: 11, color: "#3a4460" }}>{t.source}</div>}
-                  </td>
-                  <td style={{ ...TD, fontFamily: "'IBM Plex Mono', monospace", color: isIncome ? "#6ee7a0" : "#ff8080", fontWeight: 600 }}>
-                    {isIncome ? "+" : ""}{formatCurrency(t.amount)}
-                  </td>
-                  <td style={TD}>
-                    {editId === t.id ? (
-                      <select
-                        autoFocus
-                        defaultValue={t.categoryId}
-                        onChange={(e) => handleCategoryChange(t.id, e.target.value)}
-                        onBlur={() => setEditId(null)}
-                        style={{ ...inputStyle, padding: "4px 8px", fontSize: 12 }}
+      <Card elevation={0}>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                {COLUMNS.map((col) => (
+                  <TableCell key={col.id} sx={{ whiteSpace: "nowrap" }}>
+                    {col.sortable ? (
+                      <TableSortLabel
+                        active={orderBy === col.id}
+                        direction={orderBy === col.id ? order : "asc"}
+                        onClick={() => handleSort(col.id)}
                       >
-                        {categories.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-                      </select>
-                    ) : (
-                      <span onClick={() => setEditId(t.id)} style={{ cursor: "pointer" }} title="Click to change category">
-                        <Badge color={cat.color}>{cat.icon} {cat.name}</Badge>
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ ...TD, fontFamily: "'IBM Plex Mono', monospace", color: "#5a6480", fontSize: 13 }}>
-                    {t.balance != null ? formatCurrency(t.balance) : "—"}
-                  </td>
-                  <td style={TD}>
-                    <button onClick={() => handleDelete(t.id)} style={{ background: "none", border: "none", color: "#ff6060", cursor: "pointer", fontSize: 16 }} title="Delete">🗑</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                        {col.label}
+                      </TableSortLabel>
+                    ) : col.label}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginated.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 6, color: "text.disabled" }}>
+                    No transactions found
+                  </TableCell>
+                </TableRow>
+              )}
+              {paginated.map((t) => {
+                const cat = categories.find((c) => c.id === t.categoryId) || { name: "Other", color: "#888", icon: "📦" };
+                const isIncome = t.amount > 0;
+                return (
+                  <TableRow key={t.id} hover>
+                    <TableCell sx={{ whiteSpace: "nowrap", color: "text.secondary", fontSize: 13 }}>
+                      {formatDate(t.date)}
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 320 }}>
+                      <Typography
+                        variant="body2"
+                        color="text.primary"
+                        sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      >
+                        {t.description}
+                      </Typography>
+                      {t.source && (
+                        <Typography variant="caption" color="text.disabled">{t.source}</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: isIncome ? "success.main" : "error.main", whiteSpace: "nowrap" }}>
+                      {isIncome ? "+" : ""}{formatCurrency(t.amount)}
+                    </TableCell>
+                    <TableCell>
+                      {editId === t.id ? (
+                        <Select
+                          autoFocus
+                          size="small"
+                          defaultValue={t.categoryId}
+                          onChange={(e) => handleCategoryChange(t.id, e.target.value)}
+                          onBlur={() => setEditId(null)}
+                          sx={{ fontSize: 12, minWidth: 160 }}
+                        >
+                          {categories.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>{c.icon} {c.name}</MenuItem>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Tooltip title="Click to change category">
+                          <span onClick={() => setEditId(t.id)}>
+                            <CategoryChip category={cat} />
+                          </span>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: "'IBM Plex Mono', monospace", color: "text.disabled", fontSize: 13, whiteSpace: "nowrap" }}>
+                      {t.balance != null ? formatCurrency(t.balance) : "—"}
+                    </TableCell>
+                    <TableCell align="right">
+                      <IconButton size="small" color="error" onClick={() => handleDelete(t.id)} title="Delete">
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 16 }}>
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={ghostBtnStyle}>← Prev</button>
-          <span style={{ padding: "8px 12px", color: "#8892aa", fontSize: 13 }}>Page {page} of {totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={ghostBtnStyle}>Next →</button>
-        </div>
-      )}
-    </div>
+        <TablePagination
+          component="div"
+          count={txns.length}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={(_, p) => setPage(p)}
+          onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+          sx={{ borderTop: "1px solid", borderColor: "divider", color: "text.secondary" }}
+        />
+      </Card>
+    </Box>
   );
 }
-
-const TD = { padding: "12px 16px", fontSize: 14, color: "#8892aa", verticalAlign: "middle" };

@@ -1,74 +1,80 @@
 /**
- * Header.jsx
- * Top navigation bar.
+ * Header.jsx — MUI AppBar with Tabs navigation.
  */
 
 import React from "react";
-import { api } from "../api/api";
-import { ghostBtnStyle, dangerBtnStyle } from "./UI";
+import {
+  AppBar, Toolbar, Tabs, Tab, Button, Box, Typography, Stack,
+} from "@mui/material";
+import DownloadIcon from "@mui/icons-material/Download";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
+import DashboardIcon from "@mui/icons-material/Dashboard";
+import ListAltIcon from "@mui/icons-material/ListAlt";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
+import CategoryIcon from "@mui/icons-material/Category";
 
-const TABS = ["Dashboard", "Transactions", "Upload", "Categories"];
+const TABS = [
+  { label: "Dashboard",    icon: <DashboardIcon  fontSize="small" /> },
+  { label: "Transactions", icon: <ListAltIcon     fontSize="small" /> },
+  { label: "Upload",       icon: <UploadFileIcon  fontSize="small" /> },
+  { label: "Categories",   icon: <CategoryIcon    fontSize="small" /> },
+];
 
-export default function Header({ activeTab, onTabChange, onClearAll }) {
+export default function Header({ activeTab, onTabChange, onClearAll, onExport }) {
   return (
-    <header
-      style={{
-        background: "#111520",
-        borderBottom: "1px solid #1e2440",
-        padding: "0 32px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-      }}
-    >
-      {/* Logo + Nav */}
-      <div style={{ display: "flex", alignItems: "center" }}>
-        <span
-          style={{
-            fontSize: 20,
+    <AppBar position="sticky" elevation={0} sx={{ bgcolor: "background.paper", borderBottom: "1px solid", borderColor: "divider" }}>
+      <Toolbar sx={{ gap: 2, px: { xs: 2, md: 4 } }}>
+        {/* Logo */}
+        <Typography
+          variant="h6"
+          sx={{
             fontWeight: 800,
             background: "linear-gradient(135deg, #7c6af7, #4ecdc4)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
-            padding: "20px 0",
-            marginRight: 28,
             letterSpacing: "-0.02em",
+            mr: 2,
+            whiteSpace: "nowrap",
           }}
         >
           💹 FinanceFlow
-        </span>
+        </Typography>
 
-        <nav style={{ display: "flex", gap: 4 }}>
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => onTabChange(tab)}
-              style={{
-                background: activeTab === tab ? "#7c6af722" : "none",
-                border: "none",
-                color: activeTab === tab ? "#7c6af7" : "#5a6480",
-                padding: "8px 16px",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontSize: 14,
-                fontWeight: activeTab === tab ? 600 : 400,
-              }}
-            >
-              {tab}
-            </button>
+        {/* Tabs */}
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => onTabChange(v)}
+          textColor="primary"
+          indicatorColor="primary"
+          sx={{ flexGrow: 1 }}
+        >
+          {TABS.map((t) => (
+            <Tab key={t.label} label={t.label} icon={t.icon} iconPosition="start" />
           ))}
-        </nav>
-      </div>
+        </Tabs>
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => window.open(api.exportURL())} style={ghostBtnStyle}>
-          ⬇ Export CSV
-        </button>
-        <button onClick={onClearAll} style={dangerBtnStyle}>
-          🗑 Clear All
-        </button>
-      </div>
-    </header>
+        {/* Action buttons */}
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={onExport}
+            sx={{ borderColor: "divider", color: "text.secondary" }}
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DeleteSweepIcon />}
+            onClick={onClearAll}
+            color="error"
+          >
+            Clear All
+          </Button>
+        </Stack>
+      </Toolbar>
+    </AppBar>
   );
 }

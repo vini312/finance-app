@@ -1,146 +1,231 @@
 /**
  * Dashboard.jsx
- * Analytics overview: stat cards, area chart, pie chart, bar chart, top expenses.
+ *
+ * Drag-and-drop + border-resize customizable widget grid.
+ *
+ * Resize UX:
+ *  - Every widget has a 6px invisible right-border handle (cursor: col-resize)
+ *  - Dragging it snaps to 1/12 column increments, live, with a "3 / 12 col" badge
+ *  - Works always (not gated behind edit mode)
+ *
+ * Drag-to-reorder UX:
+ *  - Click "Customize" to enter edit mode
+ *  - Drag handle (⠿) appears in the widget header to move it
+ *  - X button removes the widget
+ *  - "Add Widget" drawer restores removed ones
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from "recharts";
-import { api } from "../api/api";
-import { formatCurrency, formatDate } from "../utils/formatters";
-import { StatCard, Card, CardTitle, Badge } from "../components/UI";
+  DndContext, closestCenter, KeyboardSensor,
+  PointerSensor, useSensor, useSensors, DragOverlay,
+} from "@dnd-kit/core";
+import {
+  SortableContext, sortableKeyboardCoordinates, rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
+  Box, Button, Paper, Typography, Skeleton, Card, CardContent,
+  Stack, Tooltip,
+} from "@mui/material";
+import EditIcon       from "@mui/icons-material/Edit";
+import EditOffIcon    from "@mui/icons-material/EditOff";
+import AddIcon        from "@mui/icons-material/Add";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 
-const TOOLTIP_STYLE = {
-  contentStyle: { background: "#1a1f2e", border: "1px solid #2a3048", borderRadius: 8, color: "#c8d0e7" },
-  formatter: (v) => formatCurrency(v),
-};
+import { api }                    from "../api/api";
+import { WIDGET_REGISTRY }        from "../dashboard/widgetRegistry";
+import { useDashboardLayout }     from "../dashboard/useDashboardLayout";
+import DraggableWidget            from "../dashboard/DraggableWidget";
+import AddWidgetPanel             from "../dashboard/AddWidgetPanel";
+
+const registryMap = Object.fromEntries(WIDGET_REGISTRY.map((w) => [w.id, w]));
 
 export default function Dashboard({ categories, refresh }) {
-  const [analytics, setAnalytics] = useState(null);
+  const [analytics,    setAnalytics]    = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [isEditMode,   setIsEditMode]   = useState(false);
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [activeId,     setActiveId]     = useState(null);
 
+  // ref to the grid DOM element so resize handle can measure column width
+  const gridRef = useRef(null);
+
+  const {
+    activeWidgets, availableWidgets,
+    reorder, addWidget, removeWidget, setWidgetWidth, resetLayout,
+  } = useDashboardLayout();
+
+  // ── Data ────────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
+    setLoading(true);
     const data = await api.getAnalytics().catch(() => null);
     setAnalytics(data);
+    setLoading(false);
   }, []);
-
   useEffect(() => { load(); }, [load, refresh]);
 
-  if (!analytics) {
-    return <div style={{ color: "#5a6480", padding: 40, textAlign: "center" }}>Loading analytics…</div>;
+  // ── DnD (reordering only — resize is handled separately via mouse events) ──
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragStart({ active }) { setActiveId(active.id); }
+  function handleDragEnd({ active, over }) {
+    setActiveId(null);
+    if (!over || active.id === over.id) return;
+    const oldIndex = activeWidgets.findIndex((w) => w.id === active.id);
+    const newIndex  = activeWidgets.findIndex((w) => w.id === over.id);
+    if (oldIndex !== -1 && newIndex !== -1) reorder(oldIndex, newIndex);
   }
 
-  const pieData = analytics.byCategory
-    .filter((c) => c.total > 0)
-    .slice(0, 8)
-    .map((c) => ({ name: `${c.icon} ${c.name}`, value: c.total, color: c.color }));
+  // ── States ──────────────────────────────────────────────────────────────────
+  if (loading) return <LoadingSkeleton />;
 
-  const monthData = analytics.byMonth.map((m) => ({ ...m, net: m.income - m.expenses }));
+  if (!analytics || analytics.transactionCount === 0) {
+    return (
+      <Paper elevation={0} sx={{ p: 6, textAlign: "center" }}>
+        <Typography fontSize={48} mb={2}>📂</Typography>
+        <Typography variant="h6" color="text.secondary">No data yet</Typography>
+        <Typography variant="body2" color="text.disabled" mt={1}>
+          Upload a CSV file to see your dashboard
+        </Typography>
+      </Paper>
+    );
+  }
+
+  const activeWidget = activeId ? registryMap[activeId] : null;
 
   return (
-    <div>
-      {/* Stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
-        <StatCard label="Total Income"   value={formatCurrency(analytics.totalIncome)}   color="#6ee7a0" icon="💰" sub={`${analytics.transactionCount} transactions`} />
-        <StatCard label="Total Expenses" value={formatCurrency(analytics.totalExpenses)} color="#ff8080" icon="📉" />
-        <StatCard label="Net Balance"    value={formatCurrency(analytics.netBalance)}    color={analytics.netBalance >= 0 ? "#6ee7a0" : "#ff8080"} icon="⚖️" />
-        <StatCard label="Transactions"   value={analytics.transactionCount}              icon="📋" />
-      </div>
+    <Box>
+      {/* Toolbar */}
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2.5}>
+        <Typography variant="h6" fontWeight={700}>Dashboard</Typography>
+        <Stack direction="row" spacing={1}>
+          {isEditMode && (
+            <>
+              <Tooltip title="Add a removed widget back">
+                <span>
+                  <Button
+                    size="small" variant="outlined" startIcon={<AddIcon />}
+                    onClick={() => setAddPanelOpen(true)}
+                    disabled={availableWidgets.length === 0}
+                  >
+                    Add Widget
+                    {availableWidgets.length > 0 && (
+                      <Box component="span" sx={{ ml: 0.8, bgcolor: "primary.main", color: "#fff", borderRadius: "50%", width: 18, height: 18, fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>
+                        {availableWidgets.length}
+                      </Box>
+                    )}
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} onClick={resetLayout} color="warning">
+                Reset
+              </Button>
+            </>
+          )}
+          <Button
+            size="small"
+            variant={isEditMode ? "contained" : "outlined"}
+            startIcon={isEditMode ? <EditOffIcon /> : <EditIcon />}
+            onClick={() => { setIsEditMode((v) => !v); setAddPanelOpen(false); }}
+            color={isEditMode ? "primary" : "inherit"}
+            sx={!isEditMode ? { borderColor: "divider", color: "text.secondary" } : {}}
+          >
+            {isEditMode ? "Done" : "Customize"}
+          </Button>
+        </Stack>
+      </Stack>
 
-      {/* Area chart + Pie chart */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24, marginBottom: 24 }}>
-        <Card>
-          <CardTitle>Monthly Income vs Expenses</CardTitle>
-          {analytics.byMonth.length === 0
-            ? <EmptyChart />
-            : (
-              <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={analytics.byMonth} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="incG" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6ee7a0" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#6ee7a0" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="expG" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ff8080" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#ff8080" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2440" />
-                  <XAxis dataKey="month" tick={{ fill: "#5a6480", fontSize: 11 }} />
-                  <YAxis tick={{ fill: "#5a6480", fontSize: 11 }} tickFormatter={(v) => "$" + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v)} />
-                  <Tooltip {...TOOLTIP_STYLE} />
-                  <Area type="monotone" dataKey="income"   stroke="#6ee7a0" fill="url(#incG)" strokeWidth={2} name="Income" />
-                  <Area type="monotone" dataKey="expenses" stroke="#ff8080" fill="url(#expG)" strokeWidth={2} name="Expenses" />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-        </Card>
-
-        <Card>
-          <CardTitle>Spending by Category</CardTitle>
-          {pieData.length === 0
-            ? <EmptyChart />
-            : (
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} dataKey="value" paddingAngle={3}>
-                    {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip {...TOOLTIP_STYLE} />
-                  <Legend iconType="circle" formatter={(v) => <span style={{ color: "#8892aa", fontSize: 11 }}>{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-        </Card>
-      </div>
-
-      {/* Bar chart */}
-      {monthData.length > 0 && (
-        <Card style={{ marginBottom: 24 }}>
-          <CardTitle>Monthly Net Cash Flow</CardTitle>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={monthData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2440" />
-              <XAxis dataKey="month" tick={{ fill: "#5a6480", fontSize: 11 }} />
-              <YAxis tick={{ fill: "#5a6480", fontSize: 11 }} tickFormatter={(v) => "$" + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v)} />
-              <Tooltip {...TOOLTIP_STYLE} />
-              <Bar dataKey="net" radius={[4, 4, 0, 0]}>
-                {monthData.map((m, i) => <Cell key={i} fill={m.net >= 0 ? "#6ee7a0" : "#ff8080"} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
+      {/* Hint banners */}
+      {isEditMode && (
+        <Box sx={{ mb: 2, p: 1.5, bgcolor: "primary.main" + "14", borderRadius: 2, border: "1px dashed", borderColor: "primary.main" + "44" }}>
+          <Typography variant="caption" color="primary.light">
+            ✏️ <strong>Edit mode</strong> — drag ⠿ to reorder · click ✕ to remove · <strong>Add Widget</strong> to restore hidden ones
+          </Typography>
+        </Box>
       )}
+      <Box sx={{ mb: 2, p: 1.5, bgcolor: "divider", borderRadius: 2, opacity: 0.6 }}>
+        <Typography variant="caption" color="text.disabled">
+          ↔ Drag the right border of any widget to resize it
+        </Typography>
+      </Box>
 
-      {/* Top expenses */}
-      {analytics.topExpenses.length > 0 && (
-        <Card>
-          <CardTitle>Top 5 Expenses</CardTitle>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {analytics.topExpenses.map((t) => {
-              const cat = categories.find((c) => c.id === t.categoryId) || { name: "Other", color: "#888", icon: "📦" };
+      {/* Grid */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={activeWidgets.map((w) => w.id)}
+          strategy={rectSortingStrategy}
+        >
+          <Box
+            ref={gridRef}
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(12, 1fr)",
+              gap: 2,
+              alignItems: "start",
+            }}
+          >
+            {activeWidgets.map(({ id: widgetId, w }) => {
+              const def = registryMap[widgetId];
+              if (!def) return null;
+              const Component = def.component;
               return (
-                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#111520", borderRadius: 8, border: "1px solid #1e2440" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 20, width: 28, textAlign: "center" }}>{cat.icon}</span>
-                    <div>
-                      <div style={{ color: "#c8d0e7", fontSize: 14 }}>{t.description}</div>
-                      <div style={{ color: "#5a6480", fontSize: 12 }}>{formatDate(t.date)}</div>
-                    </div>
-                  </div>
-                  <Badge color={cat.color}>{formatCurrency(t.amount)}</Badge>
-                </div>
+                <DraggableWidget
+                  key={widgetId}
+                  id={widgetId}
+                  label={def.label}
+                  icon={def.icon}
+                  isStatCard={def.isStatCard}
+                  colSpan={w}
+                  minW={def.minW}
+                  isEditMode={isEditMode}
+                  onRemove={removeWidget}
+                  onResize={setWidgetWidth}
+                  gridRef={gridRef}
+                >
+                  <Component analytics={analytics} categories={categories} />
+                </DraggableWidget>
               );
             })}
-          </div>
-        </Card>
-      )}
-    </div>
+          </Box>
+        </SortableContext>
+
+        {/* Ghost shown at pointer while dragging to reorder */}
+        <DragOverlay>
+          {activeWidget ? (
+            <Box sx={{ bgcolor: "background.paper", border: "2px solid", borderColor: "primary.main", borderRadius: 3, p: 2, opacity: 0.9, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 1, minWidth: 160 }}>
+              <Typography fontSize={20}>{activeWidget.icon}</Typography>
+              <Typography variant="body2" fontWeight={600} color="text.primary">{activeWidget.label}</Typography>
+            </Box>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <AddWidgetPanel
+        open={addPanelOpen}
+        onClose={() => setAddPanelOpen(false)}
+        availableWidgets={availableWidgets}
+        onAdd={addWidget}
+      />
+    </Box>
   );
 }
 
-function EmptyChart() {
-  return <div style={{ color: "#5a6480", padding: 32, textAlign: "center" }}>No data yet — upload a CSV to get started</div>;
+function LoadingSkeleton() {
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 2 }}>
+      {[3, 3, 3, 3, 8, 4, 12].map((span, i) => (
+        <Box key={i} sx={{ gridColumn: `span ${span}` }}>
+          <Card elevation={0}><CardContent><Skeleton variant="rectangular" height={i < 4 ? 90 : 220} /></CardContent></Card>
+        </Box>
+      ))}
+    </Box>
+  );
 }

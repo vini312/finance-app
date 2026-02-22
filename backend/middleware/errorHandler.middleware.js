@@ -1,6 +1,9 @@
 /**
  * errorHandler.middleware.js
- * Central Express error handler — catches anything passed to next(err).
+ * Central Express 5 error handler.
+ *
+ * Express 5 automatically forwards rejected async promises to next(err),
+ * so controllers no longer need manual try/catch for async errors.
  */
 
 // eslint-disable-next-line no-unused-vars

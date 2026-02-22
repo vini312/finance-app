@@ -1,9 +1,11 @@
 /**
  * server.js
- * App entry point. Only responsible for:
- *  - creating the Express app
- *  - registering middleware & routes
- *  - starting the HTTP server
+ * App entry point — Express 5.x
+ *
+ * Key Express 5 changes applied:
+ *  - Async route errors are forwarded automatically (no manual try/catch needed in routes)
+ *  - Wildcard routes now require a named param: /*splat instead of /*
+ *  - app.del() removed (was already using app.delete())
  */
 
 const express      = require("express");
@@ -24,7 +26,7 @@ app.use(express.json());
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/categories",   categoryRoutes);
-app.use("/api",              analyticsRoutes);   // /api/analytics  &  /api/export
+app.use("/api",              analyticsRoutes);
 
 // ── Error handler (must be last) ─────────────────────────────────────────────
 app.use(errorHandler);

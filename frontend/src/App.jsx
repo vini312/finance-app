@@ -1,20 +1,21 @@
 /**
- * App.jsx
- * Root component. Owns global state (active tab, refresh counter)
- * and delegates rendering to page components.
+ * App.jsx — React 19 + MUI v7
+ * No breaking changes from React 18 usage here.
+ * ThemeProvider and CssBaseline API unchanged in MUI v7.
  */
-
 import React, { useState } from "react";
+import { ThemeProvider, CssBaseline, Box } from "@mui/material";
+import theme from "./theme";
 import { api } from "./api/api";
 import { useCategories } from "./hooks/useCategories";
 import Header from "./components/Header";
-import Dashboard   from "./pages/Dashboard";
+import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
-import Upload      from "./pages/Upload";
-import Categories  from "./pages/Categories";
+import Upload from "./pages/Upload";
+import Categories from "./pages/Categories";
 
 export default function App() {
-  const [tab,     setTab]     = useState("Dashboard");
+  const [tab, setTab] = useState(0);
   const [refresh, setRefresh] = useState(0);
 
   const { categories, refresh: refreshCategories } = useCategories();
@@ -27,21 +28,29 @@ export default function App() {
     bump();
   };
 
-  const handleCategoryRefresh = () => {
-    refreshCategories();
-    bump();
-  };
+  const handleCategoryRefresh = () => { refreshCategories(); bump(); };
+
+  const pages = [
+    <Dashboard    key="dashboard"    categories={categories} refresh={refresh} />,
+    <Transactions key="transactions" categories={categories} refresh={refresh} />,
+    <Upload       key="upload"       onUploaded={bump} />,
+    <Categories   key="categories"   categories={categories} onRefresh={handleCategoryRefresh} />,
+  ];
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0d1117", fontFamily: "'IBM Plex Sans', 'Segoe UI', sans-serif", color: "#c8d0e7" }}>
-      <Header activeTab={tab} onTabChange={setTab} onClearAll={handleClearAll} />
-
-      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
-        {tab === "Dashboard"    && <Dashboard    categories={categories} refresh={refresh} />}
-        {tab === "Transactions" && <Transactions categories={categories} refresh={refresh} />}
-        {tab === "Upload"       && <Upload       onUploaded={bump} />}
-        {tab === "Categories"   && <Categories   categories={categories} onRefresh={handleCategoryRefresh} />}
-      </main>
-    </div>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+        <Header
+          activeTab={tab}
+          onTabChange={setTab}
+          onClearAll={handleClearAll}
+          onExport={() => window.open(api.exportURL())}
+        />
+        <Box component="main" sx={{ maxWidth: 1280, mx: "auto", px: { xs: 2, md: 4 }, py: 4 }}>
+          {pages[tab]}
+        </Box>
+      </Box>
+    </ThemeProvider>
   );
 }
