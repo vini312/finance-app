@@ -41,9 +41,9 @@ const DEFAULT_CATEGORY = "8";
  * Return the best-matching categoryId for a given description string.
  */
 function autoCategory(description) {
-  const d = (description || "").toLowerCase();
-  const match = RULES.find((rule) => rule.pattern.test(d));
-  return match ? match.categoryId : DEFAULT_CATEGORY;
+  const match = RULES.find(rule => rule.pattern.test(description.toLowerCase()));
+
+  return match?.categoryId || DEFAULT_CATEGORY;
 }
 
-module.exports = { autoCategory, RULES };
+module.exports = { autoCategory };

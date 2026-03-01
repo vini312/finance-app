@@ -7,6 +7,8 @@ const { parse } = require("csv-parse/sync");
 const { v4: uuidv4 } = require("uuid");
 const { autoCategory } = require("./categorizer.service");
 
+// -------------------------- HELPER FUNCTIONS --------------------------
+
 /**
  * Map the index of CSV columns to transaction fields based on header keywords.
  * 
@@ -44,23 +46,28 @@ function detectColumns(recordHeaders) {
 }
 
 /**
- * Parse a raw string into a float, handling currency symbols and commas.
- */
-function parseAmount(str) {
-  if (!str && str !== 0) return null;
-  const cleaned = String(str).replace(/[^0-9.\-,]/g, "").replace(",", ".");
-  return parseFloat(cleaned);
-}
-
-/**
  * Normalize a raw date string to YYYY-MM-DD.
  * Falls back to today if unparseable.
  */
-function normalizeDate(rawDate) {
-  if (!rawDate) return new Date().toISOString().split("T")[0];
-  const d = new Date(rawDate);
-  return isNaN(d.getTime()) ? rawDate : d.toISOString().split("T")[0];
+function normalizeDate(dateString) {
+  if (!dateString) {
+    return new Date().toISOString().split("T")[0];
+  }
+
+  const date = new Date(dateString);
+
+  return isNaN(date.getTime()) ? dateString : date.toISOString().split("T")[0];
+
+  
+  // const dateObj = new Date(dateString);
+
+  // const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
+  // const formattedDate = dateObj.toLocaleDateString('en-CA', options);
+
+  // return formattedDate || new Date().toString().split("T")[0];
 }
+
+// -------------------------- MAIN FUNCTION --------------------------
 
 /**
  * Parse a CSV buffer and return { imported, errors }.
@@ -81,52 +88,55 @@ function parseCSV(buffer, filename) {
   }
 
   const headers = records[0]; // First row is header
-  const mapping = detectColumns(headers); // Determine which columns correspond to which fields
+  const fieldIndexMapping = detectColumns(headers); // Determine which columns correspond to which fields
   const imported = [];
   const errors   = [];
 
   // Loop through each data row and attempt to parse it into a transaction object starting from index 1 (since index 0 is the header)
   for (let i = 1; i < records.length; i++) {
     const row = records[i];
+
     try {
       let amount = null;
 
-      if (mapping.amount !== undefined) {
-        amount = parseAmount(row[mapping.amount]);
-      } else if (mapping.debit !== undefined || mapping.credit !== undefined) {
-        const debit  = mapping.debit  !== undefined ? (parseAmount(row[mapping.debit])  || 0) : 0;
-        const credit = mapping.credit !== undefined ? (parseAmount(row[mapping.credit]) || 0) : 0;
+      // First try to parse amount directly from an "amount" column, if it exists
+      if (fieldIndexMapping.amount) {
+        amount = parseFloat(row[fieldIndexMapping.amount]);
+      } 
+      // If no direct amount column, calculate it from debit and credit columns
+      else {
+        const debit  = fieldIndexMapping.debit ? (parseFloat(row[fieldIndexMapping.debit])  || 0) : 0;
+        const credit = fieldIndexMapping.credit ? (parseFloat(row[fieldIndexMapping.credit]) || 0) : 0;
         amount = credit - debit;
       }
 
-      if (amount === null || isNaN(amount)) {
-        errors.push({ row: i + 1, reason: "Could not parse amount" });
-        continue;
+      // If amount is still not a valid number, log an error for this row and skip it
+      if (isNaN(amount)) {
+        errors.push({ row: i, value: amount , reason: "Could not parse amount" });
+        continue; // Skip to next row without adding a transaction for this one
       }
 
-      const description = mapping.description !== undefined
-        ? row[mapping.description]?.trim()
-        : `Row ${i}`;
-
-      const date    = normalizeDate(mapping.date !== undefined ? row[mapping.date]?.trim() : null);
-      const balance = mapping.balance !== undefined ? parseAmount(row[mapping.balance]) : null;
+      const description = fieldIndexMapping.description ? row[fieldIndexMapping.description]?.trim() : "";
+      const date    = normalizeDate(fieldIndexMapping.date !== undefined ? row[fieldIndexMapping.date]?.trim() : null);
+      const balance = fieldIndexMapping.balance ? parseFloat(row[fieldIndexMapping.balance]) : null;
 
       imported.push({
         id:          uuidv4(),
         date,
-        description: description || "Unknown",
+        description,
         amount,
         balance,
         categoryId:  autoCategory(description),
         source:      filename,
-        createdAt:   new Date().toISOString(),
+        createdAt:   new Date().toString(),
       });
+
     } catch (e) {
-      errors.push({ row: i + 1, reason: e.message });
+      errors.push({ row: i, reason: e.message });
     }
   }
 
   return { imported, errors };
 }
 
-module.exports = { parseCSV, detectColumns, parseAmount, normalizeDate };
+module.exports = { parseCSV };

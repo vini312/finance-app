@@ -11,8 +11,10 @@ function summary(req, res) {
   const { startDate, endDate } = req.query;
   let transactions = store.getTransactions();
 
-  if (startDate) transactions = transactions.filter((t) => t.date >= startDate);
-  if (endDate)   transactions = transactions.filter((t) => t.date <= endDate);
+  // Remove transactions older than startDate, if provided
+  transactions = startDate ? transactions.filter((t) => t.date >= startDate) : transactions;
+  // Remove transactions newer than endDate, if provided
+  transactions = endDate ? transactions.filter((t) => t.date <= endDate) : transactions;
 
   res.json(buildAnalytics(transactions, store.getCategories()));
 }

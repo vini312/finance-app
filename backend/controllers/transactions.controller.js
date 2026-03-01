@@ -72,16 +72,12 @@ function remove(req, res) {
   res.json({ success: true });
 }
 
-// DELETE /api/transactions
-function removeAll(_req, res) {
-  store.setTransactions([]);
-  res.json({ success: true });
-}
-
 // GET /api/export
 function exportCSV(_req, res) {
   const categories = store.getCategories();
+
   const header = "Date,Description,Amount,Category,Balance\n";
+  
   const rows   = store.getTransactions().map((t) => {
     const cat = categories.find((c) => c.id === t.categoryId)?.name || "Other";
     return `"${t.date}","${t.description}",${t.amount},"${cat}",${t.balance ?? ""}`;
@@ -92,4 +88,4 @@ function exportCSV(_req, res) {
   res.send(header + rows.join("\n"));
 }
 
-module.exports = { upload, list, update, remove, removeAll, exportCSV };
+module.exports = { upload, list, update, remove, exportCSV };

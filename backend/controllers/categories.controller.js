@@ -11,35 +11,46 @@ function list(_req, res) {
 
 function create(req, res) {
   const { name, color, icon } = req.body;
+
   if (!name) {
     const err = new Error("Name is required");
     err.status = 400;
     throw err;
   }
+
   const category = { id: uuidv4(), name, color: color || "#888888", icon: icon || "📁" };
+
   store.setCategories([...store.getCategories(), category]);
+
   res.status(201).json(category);
 }
 
 function update(req, res) {
-  const cats = store.getCategories();
-  const idx  = cats.findIndex((c) => c.id === req.params.id);
-  if (idx === -1) {
+  const categories = store.getCategories();
+  const index = categories.findIndex(category => category.id === req.params.id);
+
+  if (index === -1) {
     const err = new Error("Category not found");
     err.status = 404;
     throw err;
   }
-  cats[idx] = { ...cats[idx], ...req.body };
-  store.setCategories(cats);
-  res.json(cats[idx]);
+
+  categories[index] = { ...categories[index], ...req.body };
+
+  store.setCategories(categories);
+
+  res.json(categories[index]);
 }
 
 function remove(req, res) {
   const { id } = req.params;
+
   store.setTransactions(
     store.getTransactions().map((t) => (t.categoryId === id ? { ...t, categoryId: "8" } : t))
   );
+
   store.setCategories(store.getCategories().filter((c) => c.id !== id));
+  
   res.json({ success: true });
 }
 
