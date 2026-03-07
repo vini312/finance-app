@@ -1,15 +1,30 @@
 /**
- * categories.controller.js — Express 5 (no try/catch needed for async throws)
+ * categories.controller.js — Category Request Handlers (MongoDB)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * CRUD operations backed by the Category Mongoose model.
+ *
+ * CUSTOM STRING IDs:
+ *   Categories use a human-readable string `id` field (e.g. "food", "transport")
+ *   rather than MongoDB ObjectIds. The id is a URL-safe slug derived from the
+ *   name with a short UUID suffix to prevent collisions.
  */
 
-const { v4: uuidv4 } = require("uuid");
-const store = require("../data/store");
+import { v4 as uuidv4 } from "uuid";
+import Category          from "../models/Category.js";
+import Transaction       from "../models/Transaction.js";
 
-function list(_req, res) {
-  res.json(store.getCategories());
+// ── GET /api/categories ──────────────────────────────────────────────────────
+export async function list(_req, res) {
+  const categories = await Category.find({}).sort({ name: 1 }).lean();
+  res.json(categories);
 }
 
-function create(req, res) {
+// ── POST /api/categories ─────────────────────────────────────────────────────
+/**
+ * Creates a new user-defined category.
+ * ID is a slugified name + short UUID suffix, e.g. "food-dining-a1b2c3d4".
+ */
+export async function create(req, res) {
   const { name, color, icon } = req.body;
 
   if (!name) {
@@ -18,40 +33,52 @@ function create(req, res) {
     throw err;
   }
 
-  const category = { id: uuidv4(), name, color: color || "#888888", icon: icon || "📁" };
+  const slug    = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const shortId = uuidv4().split("-")[0];
+  const id      = `${slug}-${shortId}`;
 
-  store.setCategories([...store.getCategories(), category]);
+  const category = await Category.create({
+    id,
+    name,
+    color: color || "#888888",
+    icon:  icon  || "📁",
+  });
 
-  res.status(201).json(category);
+  res.status(201).json(category.toJSON());
 }
 
-function update(req, res) {
-  const categories = store.getCategories();
-  const index = categories.findIndex(category => category.id === req.params.id);
+// ── PATCH /api/categories/:id ────────────────────────────────────────────────
+export async function update(req, res) {
+  const category = await Category.findOneAndUpdate(
+    { id: req.params.id },
+    { $set: req.body },
+    { new: true, runValidators: true }
+  ).lean();
 
-  if (index === -1) {
+  if (!category) {
     const err = new Error("Category not found");
     err.status = 404;
     throw err;
   }
 
-  categories[index] = { ...categories[index], ...req.body };
-
-  store.setCategories(categories);
-
-  res.json(categories[index]);
+  res.json(category);
 }
 
-function remove(req, res) {
+// ── DELETE /api/categories/:id ───────────────────────────────────────────────
+/**
+ * Deletes a category and reassigns its transactions to "other" in one
+ * updateMany() DB command — no JS iteration needed.
+ * Reassignment happens BEFORE deletion so transactions are never orphaned.
+ */
+export async function remove(req, res) {
   const { id } = req.params;
 
-  store.setTransactions(
-    store.getTransactions().map((t) => (t.categoryId === id ? { ...t, categoryId: "8" } : t))
+  await Transaction.updateMany(
+    { categoryId: id },
+    { $set: { categoryId: "other" } }
   );
 
-  store.setCategories(store.getCategories().filter((c) => c.id !== id));
-  
+  await Category.findOneAndDelete({ id });
+
   res.json({ success: true });
 }
-
-module.exports = { list, create, update, remove };

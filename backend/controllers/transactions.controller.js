@@ -1,16 +1,27 @@
 /**
- * transactions.controller.js
+ * transactions.controller.js — Transaction Request Handlers (MongoDB)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * All operations go to MongoDB via the Transaction Mongoose model.
+ * Filtering, sorting, and aggregation are pushed to the database engine rather
+ * than loading records into Node memory.
  *
- * Express 5: async functions automatically forward thrown errors to
- * the error handler — no try/catch wrapper needed in route handlers.
+ * PERFORMANCE PHILOSOPHY:
+ *   "Do the work in the database, not in Node."
+ *   MongoDB's query engine uses indexes, runs in optimised C++, and processes
+ *   data without allocating large JS arrays on Node's heap.
  */
 
-const store        = require("../data/store");
-const { parseCSV } = require("../services/csvParser.service");
+import Transaction from "../models/Transaction.js";
+import Category from "../models/Category.js";
+import { parseCSV } from "../services/csvParser.service.js";
 
-// POST /api/transactions/upload
-// Use multer middleware to handle file upload, then parse CSV and store transactions in memory
-async function upload(req, res) {
+// ── POST /api/transactions/upload ────────────────────────────────────────────
+/**
+ * Parses an uploaded CSV and bulk-inserts the results.
+ * insertMany() is a single batch write — one DB round-trip for any number of rows.
+ * ordered: false lets MongoDB continue inserting after an individual failure.
+ */
+export async function upload(req, res) {
   if (!req.file) {
     const err = new Error("No file provided");
     err.status = 400;
@@ -20,72 +31,130 @@ async function upload(req, res) {
   // parseCSV returns an object with 'imported' array and 'errors' array
   const { imported, errors } = parseCSV(req.file.buffer, req.file.originalname);
 
-  // Append imported transactions to existing ones in the store
-  store.setTransactions([...store.getTransactions(), ...imported]);
+  let savedDocs = [];
+  if (imported.length > 0) {
+    savedDocs = await Transaction.insertMany(imported, { ordered: false });
+  }
 
-  // Return summary of import results
   res.json({
-    imported:     imported.length,
+    imported:     savedDocs.length,
     errors:       errors.length,
     errorDetails: errors,
-    transactions: imported,
+    transactions: savedDocs,
   });
 }
 
-// GET /api/transactions
-function list(req, res) {
+// ── GET /api/transactions ────────────────────────────────────────────────────
+/**
+ * Returns a filtered, sorted list of transactions via MongoDB queries.
+ *
+ * Filter object is built incrementally — only conditions with a provided
+ * query param are added. An empty {} matches all documents.
+ *
+ * Text search uses the { description: "text" } index — far faster than $regex.
+ * All sorts are applied at the DB level so indexes can serve them.
+ * .lean() returns plain JS objects, skipping Mongoose hydration overhead.
+ */
+export async function list(req, res) {
   const { search, categoryId, startDate, endDate, type, sortBy, sortDir } = req.query;
-  let result = [...store.getTransactions()];
 
-  if (search)                             result = result.filter((t) => t.description.toLowerCase().includes(search.toLowerCase()));
-  if (categoryId && categoryId !== "all") result = result.filter((t) => t.categoryId === categoryId);
-  if (startDate)                          result = result.filter((t) => t.date >= startDate);
-  if (endDate)                            result = result.filter((t) => t.date <= endDate);
-  if (type === "income")                  result = result.filter((t) => t.amount > 0);
-  if (type === "expense")                 result = result.filter((t) => t.amount < 0);
+  const filter = {};
+
+  if (search) {
+    filter.$text = { $search: search };
+  }
+
+  if (categoryId && categoryId !== "all") {
+    filter.categoryId = categoryId;
+  }
+
+  if (startDate || endDate) {
+    filter.date = {};
+    if (startDate) filter.date.$gte = startDate;
+    if (endDate)   filter.date.$lte = endDate;
+  }
+
+  if (type === "income") {
+    filter.amount = { $gt: 0 };
+  } else if (type === "expense") {
+    filter.amount = { $lt: 0 };
+  }
 
   const dir = sortDir === "asc" ? 1 : -1;
-  if (sortBy === "amount")           result.sort((a, b) => (a.amount - b.amount) * dir);
-  else if (sortBy === "description") result.sort((a, b) => a.description.localeCompare(b.description) * dir);
-  else                               result.sort((a, b) => (a.date < b.date ? 1 : -1) * dir);
+  let sort = { date: -1 };
 
-  res.json(result);
+  if (sortBy === "amount")           sort = { amount: dir };
+  else if (sortBy === "description") sort = { description: dir };
+  else                               sort = { date: dir };
+
+  const projection = search ? { score: { $meta: "textScore" } } : {};
+
+  const transactions = await Transaction.find(filter, projection).sort(sort).lean();
+  res.json(transactions);
 }
 
-// PATCH /api/transactions/:id
-function update(req, res) {
-  const txns = store.getTransactions();
-  const idx  = txns.findIndex((t) => t.id === req.params.id);
-  if (idx === -1) {
+// ── PATCH /api/transactions/:id ──────────────────────────────────────────────
+/**
+ * Partially updates a transaction (used for re-categorisation).
+ * { new: true } returns the document AFTER the update.
+ * { runValidators: true } runs schema validators on the updated fields.
+ */
+export async function update(req, res) {
+  const transaction = await Transaction.findByIdAndUpdate(
+    req.params.id,
+    { $set: req.body },
+    { new: true, runValidators: true }
+  ).lean();
+
+  if (!transaction) {
     const err = new Error("Transaction not found");
     err.status = 404;
     throw err;
   }
-  txns[idx] = { ...txns[idx], ...req.body };
-  store.setTransactions(txns);
-  res.json(txns[idx]);
+
+  res.json(transaction);
 }
 
-// DELETE /api/transactions/:id
-function remove(req, res) {
-  store.setTransactions(store.getTransactions().filter((t) => t.id !== req.params.id));
+// ── DELETE /api/transactions/:id ─────────────────────────────────────────────
+/**
+ * Deletes a single transaction by its MongoDB _id.
+ */
+export async function remove(req, res) {
+  await Transaction.findByIdAndDelete(req.params.id);
   res.json({ success: true });
 }
 
-// GET /api/export
-function exportCSV(_req, res) {
-  const categories = store.getCategories();
+// ── DELETE /api/transactions ─────────────────────────────────────────────────
+/**
+ * Deletes ALL transactions in one DB command.
+ */
+export async function removeAll(_req, res) {
+  await Transaction.deleteMany({});
+  res.json({ success: true });
+}
+
+// ── GET /api/export ──────────────────────────────────────────────────────────
+/**
+ * Exports all transactions as a downloadable CSV file.
+ * Fetches transactions and categories in parallel with Promise.all() —
+ * both queries are independent so they run concurrently, halving latency.
+ * A Map lookup resolves category names in O(1) per row.
+ */
+export async function exportCSV(_req, res) {
+  const [transactions, categories] = await Promise.all([
+    Transaction.find({}).sort({ date: -1 }).lean(),
+    Category.find({}).lean(),
+  ]);
+
+  const catMap = Object.fromEntries(categories.map((c) => [c.id, c.name]));
 
   const header = "Date,Description,Amount,Category,Balance\n";
-  
-  const rows   = store.getTransactions().map((t) => {
-    const cat = categories.find((c) => c.id === t.categoryId)?.name || "Other";
-    return `"${t.date}","${t.description}",${t.amount},"${cat}",${t.balance ?? ""}`;
+  const rows   = transactions.map((t) => {
+    const catName = catMap[t.categoryId] || "Other";
+    return `"${t.date}","${t.description}",${t.amount},"${catName}",${t.balance ?? ""}`;
   });
 
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", "attachment; filename=transactions.csv");
   res.send(header + rows.join("\n"));
 }
-
-module.exports = { upload, list, update, remove, exportCSV };

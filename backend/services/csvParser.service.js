@@ -1,64 +1,77 @@
 /**
- * csvParser.service.js
- * Handles all CSV parsing logic: column detection, amount parsing, date normalization.
+ * csvParser.service.js — CSV Parsing Logic
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Converts a raw CSV buffer into an array of transaction objects ready for
+ * bulk insertion into MongoDB via Transaction.insertMany().
+ *
+ * Three-stage pipeline:
+ *   Stage 1 — detectColumns: map header keywords → column indices
+ *   Stage 2 — parseAmount / normalizeDate: sanitise raw cell values
+ *   Stage 3 — row loop: assemble transaction objects, collect errors
+ *
+ * NOTE ON IDs:
+ *   No UUIDs are generated here. MongoDB auto-assigns _id on insertMany().
+ *
+ * ESM NOTE:
+ *   csv-parse ships with a named "parse" export under the /sync sub-path.
+ *   The import below uses the full package path with a named import — identical
+ *   to what the CJS destructured require did.
  */
 
-const { parse } = require("csv-parse/sync");
-const { v4: uuidv4 } = require("uuid");
-const { autoCategory } = require("./categorizer.service");
+import { parse }        from "csv-parse/sync";
+import { autoCategory } from "./categorizer.service.js";
 
 // -------------------------- HELPER FUNCTIONS --------------------------
 
 /**
- * Map the index of CSV columns to transaction fields based on header keywords.
- * 
+ * Scans the CSV header row and maps semantic field names to column indices.
  * Returns an object like { date: 0, description: 1, amount: 2 }.
- * Unmatched fields are simply omitted from the mapping.
- * 
- * @param {string[]} recordHeaders - Array of column header strings from the CSV
+ *
+ * @param  {string[]} headers
+ * @returns {Object} — { fieldName: columnIndex } for each matched field
  */
-function detectColumns(recordHeaders) {
-  // TODO: define the mapping in a separate config file and allow users to customize it via the frontend in the future
-  // Define possible keywords for each field
-  const fieldKeysRef = {
-    date: ["date", "time", "data"],
-    description: ["description", "desc", "memo", "narrative", "details", "merchant"],
-    amount: ["amount", "value"],
-    debit: ["debit", "withdrawal", "expense"],
-    credit: ["credit", "deposit", "income"],
-    balance: ["balance", "running"],
-  };
-  
-  // Convert headers to lowercase for case-insensitive matching and trim whitespace
-  const headersLowerCase = recordHeaders.map((h) => h.toLowerCase().trim());
+function detectColumns(headers) {
+  const lower = headers.map((h) => h.toLowerCase().trim());
 
-  // Helper function to find the index of the first header that matches any of the provided keywords
-  const findHeadersIndex = (keywords) => headersLowerCase.findIndex((h) => keywords.some((k) => h.includes(k)));
+  // Helper: index of the first header that contains any keyword
+  const find = (keywords) =>
+    lower.findIndex((h) => keywords.some((k) => h.includes(k)));
 
-  // Respond with an object mapping field names to their corresponding column index in the CSV
-  return Object.fromEntries(
-    // Return an array of [field, index] pairs for fields that were successfully matched to a column
-    Object.entries(fieldKeysRef).map(([field, keywords]) => {
-      const idx = findHeadersIndex(keywords);
-      return idx !== -1 ? [field, idx] : null;
-    }).filter(Boolean) // Filter out any fields that didn't find a matching column (i.e. null entries)
-  );
+  const mapping = {};
+  const dateIdx   = find(["date", "time", "data"]);
+  const descIdx   = find(["description", "desc", "memo", "narrative", "details", "merchant"]);
+  const amountIdx = find(["amount", "value"]);
+  const debitIdx  = find(["debit", "withdrawal", "expense"]);
+  const creditIdx = find(["credit", "deposit", "income"]);
+  const balIdx    = find(["balance", "running"]);
+
+  if (dateIdx   !== -1) mapping.date        = dateIdx;
+  if (descIdx   !== -1) mapping.description = descIdx;
+  if (amountIdx !== -1) mapping.amount      = amountIdx;
+  if (debitIdx  !== -1) mapping.debit       = debitIdx;
+  if (creditIdx !== -1) mapping.credit      = creditIdx;
+  if (balIdx    !== -1) mapping.balance     = balIdx;
+
+  return mapping;
 }
 
 /**
- * Normalize a raw date string to YYYY-MM-DD.
- * Falls back to today if unparseable.
+ * Normalises a raw date string to YYYY-MM-DD.
+ * Falls back to today's date if the string is unparseable.
+ *
+ * @param  {string} rawDate
+ * @returns {string} — "YYYY-MM-DD"
  */
 function normalizeDate(dateString) {
   if (!dateString) {
-    return new Date().toISOString().split("T")[0];
+    return new Date().toString().split("T")[0];
   }
 
   const date = new Date(dateString);
 
-  return isNaN(date.getTime()) ? dateString : date.toISOString().split("T")[0];
-
+  return isNaN(date.getTime()) ? dateString : date.toString().split("T")[0];
   
+  // TODO: Check Date parsing option below
   // const dateObj = new Date(dateString);
 
   // const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
@@ -70,19 +83,19 @@ function normalizeDate(dateString) {
 // -------------------------- MAIN FUNCTION --------------------------
 
 /**
- * Parse a CSV buffer and return { imported, errors }.
- * @param {Buffer} buffer   - Raw file buffer
- * @param {string} filename - Original filename (stored on each record)
+ * Parses a CSV buffer and returns { imported, errors }.
+ * The imported array contains plain objects — Mongoose assigns _id on insert.
+ *
+ * @param  {Buffer} buffer   — file buffer from multer (req.file.buffer)
+ * @param  {string} filename — original filename stored in the source field
+ * @returns {{ imported: Object[], errors: Object[] }}
  */
-function parseCSV(buffer, filename) {
-  // Use csv-parse to convert buffer to array of records 
-  // Each record is an array of column values
-  const records = parse(
-    buffer.toString("utf8"),
-    { skip_empty_lines: true, relax_column_count: true }
-  );
+export function parseCSV(buffer, filename) {
+  const records = parse(buffer.toString("utf8"), {
+    skip_empty_lines:   true,
+    relax_column_count: true,
+  });
 
-  // Must have at least header + 1 data row
   if (records.length < 2) {
     throw new Error("CSV must have at least a header row and one data row");
   }
@@ -121,14 +134,12 @@ function parseCSV(buffer, filename) {
       const balance = fieldIndexMapping.balance ? parseFloat(row[fieldIndexMapping.balance]) : null;
 
       imported.push({
-        id:          uuidv4(),
         date,
         description,
         amount,
         balance,
-        categoryId:  autoCategory(description),
-        source:      filename,
-        createdAt:   new Date().toString(),
+        categoryId: autoCategory(description),
+        source:     filename,
       });
 
     } catch (e) {
@@ -138,5 +149,3 @@ function parseCSV(buffer, filename) {
 
   return { imported, errors };
 }
-
-module.exports = { parseCSV };
