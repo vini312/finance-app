@@ -327,13 +327,6 @@ export default function Dashboard({ categories, refresh }) {
         </Box>
       )}
 
-      {/* Resize hint — always visible so users know the feature exists */}
-      <Box sx={{ mb: 2, p: 1.5, bgcolor: "divider", borderRadius: 2, opacity: 0.6 }}>
-        <Typography variant="caption" color="text.disabled">
-          ↔ Drag the right border of any widget to resize it
-        </Typography>
-      </Box>
-
       {/* ── Drag-and-Drop Grid ── */}
       {/*
         DndContext wraps the entire grid. It listens for drag events and
