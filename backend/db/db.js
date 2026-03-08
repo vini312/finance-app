@@ -26,13 +26,18 @@ import mongoose from "mongoose";
  *         This is intentional — the API cannot operate without a database.
  */
 export async function connectDB() {
-  const uri = process.env.MONGODB_URI || "mongodb://localhost:27017/financeflow";
+  if (!process.env.MONGODB_URI) {
+    throw new Error("env variable MONGODB_URI is not set");
+  }
 
-  console.log("🔌 Connecting to MongoDB…");
+  console.info("🔌 Connecting to MongoDB…");
 
-  await mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 5000,
-  });
+  await mongoose.connect(
+    process.env.MONGODB_URI, 
+    {
+      serverSelectionTimeoutMS: 5000,
+    }
+  );
 
-  console.log(`✅ MongoDB connected → ${mongoose.connection.name}`);
+  console.info(`✅ MongoDB connected → ${mongoose.connection.name}`);
 }

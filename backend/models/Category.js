@@ -61,6 +61,4 @@ const CategorySchema = new mongoose.Schema(
   }
 );
 
-CategorySchema.index({ id: 1 }, { unique: true });
-
 export default mongoose.model("Category", CategorySchema);
