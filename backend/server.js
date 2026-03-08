@@ -33,6 +33,7 @@ import errorHandler from "./middleware/errorHandler.middleware.js";
 import transactionRoutes from "./routes/transactions.routes.js";
 import categoryRoutes from "./routes/categories.routes.js";
 import analyticsRoutes from "./routes/analytics.routes.js";
+import customMetricsRoutes from "./routes/customMetrics.routes.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -42,9 +43,10 @@ app.use(cors());
 app.use(express.json());
 
 // ── Route Registration ───────────────────────────────────────────────────────
-app.use("/api/transactions", transactionRoutes);
-app.use("/api/categories",   categoryRoutes);
-app.use("/api",              analyticsRoutes);
+app.use("/api/transactions",    transactionRoutes);
+app.use("/api/categories",     categoryRoutes);
+app.use("/api/custom-metrics", customMetricsRoutes);
+app.use("/api",                analyticsRoutes);
 
 // ── Central Error Handler — must be last ─────────────────────────────────────
 app.use(errorHandler);

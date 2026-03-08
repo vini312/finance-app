@@ -43,7 +43,21 @@ import {
   SortableContext, sortableKeyboardCoordinates, rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
-  Box, Button, Paper, Typography, Skeleton, Card, CardContent, Stack, Tooltip,
+  Box,
+  Button,
+  Paper,
+  Typography,
+  Skeleton,
+  Card,
+  CardContent,
+  Stack,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  MenuItem,
 } from "@mui/material";
 import EditIcon       from "@mui/icons-material/Edit";
 import EditOffIcon    from "@mui/icons-material/EditOff";
@@ -59,12 +73,51 @@ import AddWidgetPanel         from "../dashboard/AddWidgetPanel";
 // Build a lookup map once (module level) — avoids rebuilding on every render
 const registryMap = Object.fromEntries(WIDGET_REGISTRY.map((w) => [w.id, w]));
 
+function evaluateFormula(formula, analytics) {
+  if (!analytics) return null;
+
+  const income     = analytics.totalIncome ?? 0;
+  const expenses   = analytics.totalExpenses ?? 0;
+  const net        = analytics.netBalance ?? 0;
+  const count      = analytics.transactionCount ?? 0;
+  const months     = analytics.byMonth ?? [];
+  const categories = analytics.byCategory ?? [];
+
+  try {
+    // Allow simple JS expressions using the provided variables + Math
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(
+      "income",
+      "expenses",
+      "net",
+      "count",
+      "months",
+      "categories",
+      "Math",
+      `return ${formula};`,
+    );
+    const result = fn(income, expenses, net, count, months, categories, Math);
+    if (typeof result === "number" && Number.isFinite(result)) return result;
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export default function Dashboard({ categories, refresh }) {
   const [analytics,    setAnalytics]    = useState(null);
   const [loading,      setLoading]      = useState(true);
   const [isEditMode,   setIsEditMode]   = useState(false);  // customize mode on/off
   const [addPanelOpen, setAddPanelOpen] = useState(false);  // Add Widget drawer open/closed
   const [activeId,     setActiveId]     = useState(null);   // ID of widget currently being dragged
+  const [customMetrics, setCustomMetrics] = useState([]);
+  const [metricDialogOpen, setMetricDialogOpen] = useState(false);
+  const [metricDraft, setMetricDraft] = useState({
+    name:    "",
+    icon:    "🧮",
+    formula: "",
+    format:  "number",
+  });
 
   // Ref to the grid DOM element — passed to DraggableWidget so it can measure
   // the pixel width of one column at drag-start for accurate resize snapping
@@ -95,6 +148,56 @@ export default function Dashboard({ categories, refresh }) {
 
   // Re-fetch whenever the parent bumps the `refresh` counter (e.g. after CSV upload)
   useEffect(() => { load(); }, [load, refresh]);
+
+  // Load custom metrics from the database
+  const loadCustomMetrics = useCallback(async () => {
+    const data = await api.getCustomMetrics().catch(() => []);
+    setCustomMetrics(Array.isArray(data) ? data : []);
+  }, []);
+
+  useEffect(() => { loadCustomMetrics(); }, [loadCustomMetrics]);
+
+  // ── Custom Metric CRUD ───────────────────────────────────────────────────
+  function openNewMetricDialog() {
+    setMetricDraft({
+      name:    "",
+      icon:    "🧮",
+      formula: "",
+      format:  "number",
+    });
+    setMetricDialogOpen(true);
+  }
+
+  function handleMetricDraftChange(field, value) {
+    setMetricDraft((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSaveMetric() {
+    if (!metricDraft.name.trim() || !metricDraft.formula.trim()) {
+      return;
+    }
+    try {
+      await api.createCustomMetric({
+        name:    metricDraft.name.trim(),
+        icon:    metricDraft.icon || "🧮",
+        formula: metricDraft.formula.trim(),
+        format:  metricDraft.format || "number",
+      });
+      setMetricDialogOpen(false);
+      loadCustomMetrics();
+    } catch (_) {
+      // Error shown by API interceptor; keep dialog open
+    }
+  }
+
+  async function handleRemoveMetric(id) {
+    try {
+      await api.deleteCustomMetric(id);
+      setCustomMetrics((prev) => prev.filter((m) => m.id !== id));
+    } catch (_) {
+      // Error shown by API interceptor
+    }
+  }
 
   // ── DnD Sensor Configuration ─────────────────────────────────────────────
   /**
@@ -188,6 +291,13 @@ export default function Dashboard({ categories, refresh }) {
               {/* Reset button — restores DEFAULT_LAYOUT */}
               <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} onClick={resetLayout} color="warning">
                 Reset
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={openNewMetricDialog}
+              >
+                New Metric
               </Button>
             </>
           )}
@@ -310,6 +420,82 @@ export default function Dashboard({ categories, refresh }) {
         </DragOverlay>
       </DndContext>
 
+      {/* ── Custom Metrics Section ── */}
+      {customMetrics.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1.5, color: "text.secondary" }}>
+            Custom metrics
+          </Typography>
+          <Box
+            sx={{
+              display:             "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" },
+              gap:                 2,
+            }}
+          >
+            {customMetrics.map((m) => {
+              const value = evaluateFormula(m.formula, analytics);
+              let display = "—";
+              if (value !== null) {
+                if (m.format === "currency") {
+                  display = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
+                } else if (m.format === "percent") {
+                  display = `${value.toFixed(1)}%`;
+                } else {
+                  display = value.toString();
+                }
+              }
+
+              return (
+                <Card key={m.id} elevation={0}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color:         "text.disabled",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.08em",
+                          fontWeight:    600,
+                        }}
+                      >
+                        {m.name}
+                      </Typography>
+                      <Typography fontSize={22}>{m.icon || "🧮"}</Typography>
+                    </Box>
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {display}
+                    </Typography>
+                    {value === null && (
+                      <Typography variant="caption" sx={{ color: "error.main" }}>
+                        Error evaluating formula
+                      </Typography>
+                    )}
+                    {isEditMode && (
+                      <Box sx={{ mt: 1.5, textAlign: "right" }}>
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() => handleRemoveMetric(m.id)}
+                        >
+                          Remove
+                        </Button>
+                      </Box>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
+
       {/* ── Add Widget Drawer ── */}
       {/* Slides in from the right when the user clicks "Add Widget" */}
       <AddWidgetPanel
@@ -318,6 +504,58 @@ export default function Dashboard({ categories, refresh }) {
         availableWidgets={availableWidgets}
         onAdd={addWidget}
       />
+      {/* ── New Metric Dialog ── */}
+      <Dialog open={metricDialogOpen} onClose={() => setMetricDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create custom metric</DialogTitle>
+        <DialogContent sx={{ pt: 1.5 }}>
+          <TextField
+            label="Name"
+            fullWidth
+            margin="dense"
+            value={metricDraft.name}
+            onChange={(e) => handleMetricDraftChange("name", e.target.value)}
+          />
+          <TextField
+            label="Icon (emoji)"
+            fullWidth
+            margin="dense"
+            value={metricDraft.icon}
+            onChange={(e) => handleMetricDraftChange("icon", e.target.value)}
+          />
+          <TextField
+            label="Formula"
+            fullWidth
+            margin="dense"
+            multiline
+            minRows={2}
+            value={metricDraft.formula}
+            onChange={(e) => handleMetricDraftChange("formula", e.target.value)}
+            helperText="Use: income, expenses, net, count, months, categories and Math.* (e.g. (income - expenses) / income * 100)"
+          />
+          <TextField
+            label="Format"
+            select
+            fullWidth
+            margin="dense"
+            value={metricDraft.format}
+            onChange={(e) => handleMetricDraftChange("format", e.target.value)}
+          >
+            <MenuItem value="number">Number</MenuItem>
+            <MenuItem value="currency">Currency</MenuItem>
+            <MenuItem value="percent">Percent</MenuItem>
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMetricDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleSaveMetric}
+            variant="contained"
+            disabled={!metricDraft.name.trim() || !metricDraft.formula.trim()}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

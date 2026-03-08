@@ -148,6 +148,23 @@ export const api = {
   deleteCategory: (id) =>
     client.delete(`/api/categories/${id}`).then((r) => r.data),
 
+  // ── Custom Metrics ────────────────────────────────────────────────────────
+
+  /** Fetch all custom dashboard metrics */
+  getCustomMetrics: () =>
+    client.get("/api/custom-metrics").then((r) => r.data),
+
+  /**
+   * Create a custom metric.
+   * @param {Object} data - { name, icon, formula, format }
+   */
+  createCustomMetric: (data) =>
+    client.post("/api/custom-metrics", data).then((r) => r.data),
+
+  /** Delete a custom metric by ID */
+  deleteCustomMetric: (id) =>
+    client.delete(`/api/custom-metrics/${id}`).then((r) => r.data),
+
   // ── Analytics ──────────────────────────────────────────────────────────────
 
   /**
