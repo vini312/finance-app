@@ -26,14 +26,62 @@ import Category from "../models/Category.js";
 // The "id" field is the stable string key used as categoryId on transactions.
 // "other" (id) is the permanent fallback category — never delete it.
 const SEED_CATEGORIES = [
-  { id: "food",          name: "Food & Dining",  color: "#FF6B6B", icon: "🍔" },
-  { id: "transport",     name: "Transport",      color: "#4ECDC4", icon: "🚗" },
-  { id: "shopping",      name: "Shopping",       color: "#45B7D1", icon: "🛍️" },
-  { id: "entertainment", name: "Entertainment",  color: "#96CEB4", icon: "🎬" },
-  { id: "utilities",     name: "Utilities",      color: "#FFEAA7", icon: "💡" },
-  { id: "healthcare",    name: "Healthcare",     color: "#DDA0DD", icon: "🏥" },
-  { id: "income",        name: "Income",         color: "#98FB98", icon: "💰" },
-  { id: "other",         name: "Other",          color: "#D3D3D3", icon: "📦" },
+  {
+    id:       "food",
+    name:     "Food & Dining",
+    color:    "#FF6B6B",
+    icon:     "🍔",
+    keywords: ["restaurant", "cafe", "coffee", "food", "pizza", "burger", "sushi", "mcdonalds", "kfc", "subway", "starbucks", "uber eats", "doordash", "grubhub"],
+  },
+  {
+    id:       "transport",
+    name:     "Transport",
+    color:    "#4ECDC4",
+    icon:     "🚗",
+    keywords: ["uber", "lyft", "taxi", "bus", "train", "metro", "fuel", "gas", "parking", "toll", "transit"],
+  },
+  {
+    id:       "shopping",
+    name:     "Shopping",
+    color:    "#45B7D1",
+    icon:     "🛍️",
+    keywords: ["amazon", "walmart", "target", "costco", "shop", "store", "market", "mall", "purchase"],
+  },
+  {
+    id:       "entertainment",
+    name:     "Entertainment",
+    color:    "#96CEB4",
+    icon:     "🎬",
+    keywords: ["netflix", "spotify", "disney", "hulu", "cinema", "movie", "concert", "game", "steam"],
+  },
+  {
+    id:       "utilities",
+    name:     "Utilities",
+    color:    "#FFEAA7",
+    icon:     "💡",
+    keywords: ["electric", "water", "internet", "phone", "utility", "bill", "insurance"],
+  },
+  {
+    id:       "healthcare",
+    name:     "Healthcare",
+    color:    "#DDA0DD",
+    icon:     "🏥",
+    keywords: ["pharmacy", "doctor", "hospital", "medical", "dental", "health", "clinic"],
+  },
+  {
+    id:       "income",
+    name:     "Income",
+    color:    "#98FB98",
+    icon:     "💰",
+    keywords: ["salary", "payroll", "paycheck", "income", "deposit", "transfer in", "refund"],
+  },
+  {
+    id:       "other",
+    name:     "Other",
+    color:    "#D3D3D3",
+    icon:     "📦",
+    keywords: [],
+  },
 ];
 
 /**

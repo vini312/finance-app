@@ -15,6 +15,13 @@ import Transaction from "../models/Transaction.js";
 import Category from "../models/Category.js";
 import { parseCSV } from "../services/csvParser.service.js";
 
+function normalizeTxnId(t) {
+  if (!t) return t;
+  if (t.id) return t;
+  if (t._id) return { ...t, id: t._id.toString?.() || String(t._id) };
+  return t;
+}
+
 // ── POST /api/transactions/upload ────────────────────────────────────────────
 /**
  * Parses an uploaded CSV and bulk-inserts the results.
@@ -29,7 +36,7 @@ export async function upload(req, res) {
   }
 
   // parseCSV returns an object with 'imported' array and 'errors' array
-  const { imported, errors } = parseCSV(req.file.buffer, req.file.originalname);
+  const { imported, errors } = await parseCSV(req.file.buffer, req.file.originalname);
 
   let savedDocs = [];
   if (imported.length > 0) {
@@ -90,7 +97,7 @@ export async function list(req, res) {
   const projection = search ? { score: { $meta: "textScore" } } : {};
 
   const transactions = await Transaction.find(filter, projection).sort(sort).lean();
-  res.json(transactions);
+  res.json(transactions.map(normalizeTxnId));
 }
 
 // ── PATCH /api/transactions/:id ──────────────────────────────────────────────
@@ -112,7 +119,7 @@ export async function update(req, res) {
     throw err;
   }
 
-  res.json(transaction);
+  res.json(normalizeTxnId(transaction));
 }
 
 // ── DELETE /api/transactions/:id ─────────────────────────────────────────────

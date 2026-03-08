@@ -18,8 +18,8 @@
  *   to what the CJS destructured require did.
  */
 
-import { parse }        from "csv-parse/sync";
-import { autoCategory } from "./categorizer.service.js";
+import { parse } from "csv-parse/sync";
+import { autoCategory, loadCategorizerRules } from "./categorizer.service.js";
 
 // -------------------------- HELPER FUNCTIONS --------------------------
 
@@ -88,9 +88,9 @@ function normalizeDate(dateString) {
  *
  * @param  {Buffer} buffer   — file buffer from multer (req.file.buffer)
  * @param  {string} filename — original filename stored in the source field
- * @returns {{ imported: Object[], errors: Object[] }}
+ * @returns {Promise<{ imported: Object[], errors: Object[] }>}
  */
-export function parseCSV(buffer, filename) {
+export async function parseCSV(buffer, filename) {
   const records = parse(buffer.toString("utf8"), {
     skip_empty_lines:   true,
     relax_column_count: true,
@@ -102,6 +102,7 @@ export function parseCSV(buffer, filename) {
 
   const headers = records[0]; // First row is header
   const fieldIndexMapping = detectColumns(headers); // Determine which columns correspond to which fields
+  const rules = await loadCategorizerRules();
   const imported = [];
   const errors   = [];
 
@@ -138,7 +139,7 @@ export function parseCSV(buffer, filename) {
         description,
         amount,
         balance,
-        categoryId: autoCategory(description),
+        categoryId: autoCategory(description, rules),
         source:     filename,
       });
 

@@ -231,6 +231,7 @@ export default function Transactions({ categories, refresh: externalRefresh }) {
 
               {/* Data rows */}
               {paginated.map((t) => {
+                const txnId = t.id || t._id;
                 // Find the category object for this transaction's categoryId.
                 // Fall back gracefully if the category was deleted.
                 const cat = categories.find((c) => c.id === t.categoryId)
@@ -239,7 +240,7 @@ export default function Transactions({ categories, refresh: externalRefresh }) {
                 const isIncome = t.amount > 0; // used to choose green vs red colour
 
                 return (
-                  <TableRow key={t.id} hover>
+                  <TableRow key={txnId} hover>
                     {/* Date — formatted as "Jan 15, 2024" */}
                     <TableCell sx={{ whiteSpace: "nowrap", color: "text.secondary", fontSize: 13 }}>
                       {formatDate(t.date)}
@@ -263,13 +264,13 @@ export default function Transactions({ categories, refresh: externalRefresh }) {
 
                     {/* Category — click the chip to open an inline dropdown */}
                     <TableCell>
-                      {editId === t.id ? (
+                      {editId === txnId ? (
                         // Inline dropdown: replaces the chip while editing
                         <Select
                           autoFocus   // open the dropdown immediately on render
                           size="small"
                           defaultValue={t.categoryId}
-                          onChange={(e) => handleCategoryChange(t.id, e.target.value)}
+                          onChange={(e) => handleCategoryChange(txnId, e.target.value)}
                           onBlur={() => setEditId(null)} // close without saving if user clicks away
                           sx={{ fontSize: 12, minWidth: 160 }}
                         >
@@ -280,7 +281,7 @@ export default function Transactions({ categories, refresh: externalRefresh }) {
                       ) : (
                         // Normal chip — click to enter edit mode for this row
                         <Tooltip title="Click to change category">
-                          <span onClick={() => setEditId(t.id)}>
+                          <span onClick={() => setEditId(txnId)}>
                             <CategoryChip category={cat} />
                           </span>
                         </Tooltip>
@@ -295,7 +296,7 @@ export default function Transactions({ categories, refresh: externalRefresh }) {
 
                     {/* Delete button */}
                     <TableCell align="right">
-                      <IconButton size="small" color="error" onClick={() => handleDelete(t.id)} title="Delete">
+                      <IconButton size="small" color="error" onClick={() => handleDelete(txnId)} title="Delete">
                         <DeleteOutlineIcon fontSize="small" />
                       </IconButton>
                     </TableCell>

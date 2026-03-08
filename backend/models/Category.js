@@ -10,8 +10,9 @@
  *   readable and lets the categorizer service reference categories by a
  *   meaningful name rather than a random hex string.
  *
- *   `_id: false` disables Mongoose's default ObjectId generation so that our
- *   custom string id is the only identifier on these documents.
+ *   We also keep Mongoose's default _id so that create/save works. The frontend
+ *   and API use the string `id` for lookups and keys; _id is present for
+ *   compatibility with code that expects it.
  */
 
 import mongoose from "mongoose";
@@ -42,11 +43,14 @@ const CategorySchema = new mongoose.Schema(
       type:    String,
       default: "📁",
     },
+    // Array of lowercase keyword strings used for auto-categorisation
+    keywords: {
+      type:    [String],
+      default: [],
+      trim:    true,
+    },
   },
   {
-    // Disable auto _id — our custom string id is the sole identifier.
-    _id: false,
-
     toJSON: {
       // Remove __v version key from API responses — it's an internal Mongoose detail.
       transform: (_doc, ret) => {
